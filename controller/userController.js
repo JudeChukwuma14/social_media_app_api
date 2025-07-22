@@ -1,4 +1,8 @@
-const { createUser } = require("../middleware/joiVaildation");
+const {
+    createUser,
+    forgetPass,
+    resetPass,
+} = require("../middleware/joiVaildation");
 const { generateOTP } = require("../middleware/otpGenerator");
 const { OTP_EXPIRY_MINUTES } = "../config";
 const {
@@ -91,15 +95,13 @@ const verifyOtp = async (req, res, next) => {
                 $gt: Date.now(),
             },
         });
-    
 
         if (!tempUser) {
-            await TempUser.deleteOne({ email: trimmedEmail })
+            await TempUser.deleteOne({ email: trimmedEmail });
             const err = new Error("Invalid or expired OTP");
             err.status = 404;
             throw err;
         }
-
 
         const user = await User.create({
             username: tempUser.username,
@@ -110,10 +112,10 @@ const verifyOtp = async (req, res, next) => {
 
         await TempUser.deleteOne({ email: trimmedEmail });
         const htmlContent = await renderEmailTemplate("welcomeEmail", {
-            username: user.username
+            username: user.username,
         });
 
-        console.log("-----", user)
+        console.log("-----", user);
         const transporter = await createTransporter();
         const mailOptions = {
             from: process.env.MAIL_HOST,
@@ -192,8 +194,115 @@ const resendOtp = async (req, res, next) => {
     }
 };
 
+const forgotPassword = async (req, res, next) => {
+    try {
+        if (!req.body) {
+            const err = new Error("Request body not found");
+            err.status = 400;
+            throw err;
+        }
+
+        const { error } = forgetPass(req.body);
+        if (error) {
+            const err = new Error(error.details[0].message);
+            err.status = 400;
+            throw err;
+        }
+        const { email } = req.body;
+        const trimmedEmail = email.trim().toLowerCase();
+
+        const user = await User.findOne({ email: trimmedEmail });
+        if (!user || !user.isVerifed) {
+            const err = new Error("No verified account found with this email");
+            err.status = 404;
+            throw err;
+        }
+        const otp = await generateOTP(trimmedEmail);
+
+        const htmlContent = await renderEmailTemplate("resetPasswordOtp", {
+            username: user.username,
+            otp,
+            expiryMinutes: process.env.OTP_EXPIRY_MINUTES,
+        });
+
+        const transporter = await createTransporter();
+        const mailOptions = {
+            from: process.env.MAIL_HOST,
+            to: trimmedEmail,
+            subject: "Reset Your Password OTP",
+            html: htmlContent,
+        };
+        await transporter.sendMail(mailOptions);
+        console.log("Reset Password OTP Email sent successfully");
+
+        return res.status(200).json({
+            success: true,
+            message: "Password reset OTP send to your email",
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+const resetPassword = async (req, res, next) => {
+    try {
+        if (!req.body) {
+            const err = new Error("Request body not found");
+            err.status = 400;
+            throw err;
+        }
+
+        const { error } = resetPass(req.body);
+        if (error) {
+            const err = new Error(error.details[0].message);
+            err.status = 400;
+            throw err;
+        }
+
+        const { email, otp, password } = req.body;
+        const trimmedEmail = email.trim().toLowerCase();
+
+        const user = await User.findOne({
+            email: trimmedEmail,
+            otp,
+            otpExpires: { $gt: Date.now() },
+            isVerifed: true,
+        });
+
+        if (!user) {
+            const err = new Error(
+                "Invalid or expired OTP, or account is not valified"
+            );
+            err.status = 400;
+            throw err;
+        }
+
+        const hashedPassword = bcryptjs.hashSync(password, 10);
+        await User.updateOne(
+            {
+                email: trimmedEmail,
+            },
+            {
+                $set: {
+                    password: hashedPassword,
+                    otp: null,
+                    otpExpires: null,
+                },
+            }
+        );
+        return res.status(200).json({
+            success: true,
+            message: "Password reset successfully"
+        })
+    } catch (error) {
+        next(error);
+    }
+};
+
 module.exports = {
     registerAccount,
     verifyOtp,
     resendOtp,
+    forgotPassword,
+    resetPassword,
 };

@@ -11,6 +11,11 @@ const bcryptjs = require("bcryptjs");
 
 const registerAccount = async (req, res, next) => {
     try {
+        if (!req.body) {
+            const err = new Error("Request body not found");
+            err.status = 400;
+            throw err;
+        }
         const { error } = createUser(req.body);
         if (error) {
             const err = new Error(error.details[0].message);
@@ -18,38 +23,39 @@ const registerAccount = async (req, res, next) => {
             throw err;
         }
         const { username, email, password } = req.body;
+        const trimmedEmail = email.trim().toLowerCase();
 
-        const checkUser = await User.findOne({ email });
+        const checkUser = await User.findOne({ email: trimmedEmail });
+
         if (checkUser) {
             const err = new Error("email already exists");
             err.status = 409;
             throw err;
         }
 
-        const checkTempUser = await TempUser.findOne({ email });
+        const checkTempUser = await TempUser.findOne({ email: trimmedEmail });
         if (checkTempUser) {
-            const err = new Error("Email is pending verification, Please verify OTP");
-            err.status = 409;
-            throw err;
+            await TempUser.deleteOne({ email: trimmedEmail });
         }
 
         const hashedPassword = bcryptjs.hashSync(password, 10);
-        const otp = await generateOTP(
-            email,
-            { username, email, password: hashedPassword },
-            "register"
-        );
+        await TempUser.create({
+            username,
+            email: trimmedEmail,
+            password: hashedPassword,
+        });
+        const otp = await generateOTP(trimmedEmail);
 
         const htmlContent = await renderEmailTemplate("otpEmail", {
             username,
             otp,
-            otpExpiry: OTP_EXPIRY_MINUTES,
+            expiryMinutes: process.env.OTP_EXPIRY_MINUTES,
         });
 
         const transporter = await createTransporter();
         const mailOptions = {
             from: process.env.MAIL_HOST,
-            to: email,
+            to: trimmedEmail,
             subject: "Verify your account",
             html: htmlContent,
         };
@@ -70,28 +76,30 @@ const registerAccount = async (req, res, next) => {
 
 const verifyOtp = async (req, res, next) => {
     try {
-        const { email, otp } = req.body;
-
-        if (!email || !otp) {
-            const err = new Error("Email and OTP are required");
+        if (!req.body) {
+            const err = new Error("Request body not found");
             err.status = 400;
             throw err;
         }
+        const { email, otp } = req.body;
+        const trimmedEmail = email.trim().toLowerCase();
 
-        const tempUser = await TempUser.findOne({ email });
-        console.log("tempUser:", tempUser);
+        const tempUser = await TempUser.findOne({
+            email: trimmedEmail,
+            otp,
+            otpExpires: {
+                $gt: Date.now(),
+            },
+        });
+    
+
         if (!tempUser) {
-            const err = new Error("No pending verification found for this email");
+            await TempUser.deleteOne({ email: trimmedEmail })
+            const err = new Error("Invalid or expired OTP");
             err.status = 404;
             throw err;
         }
 
-        if (tempUser.otp !== otp || tempUser.otpExpires <  Date.now()) {
-            const err = new Error("Invalid or expired OTP");
-            err.status = 400;
-            throw err;
-        }
-     
 
         const user = await User.create({
             username: tempUser.username,
@@ -99,9 +107,22 @@ const verifyOtp = async (req, res, next) => {
             password: tempUser.password,
             isVerified: true,
         });
-        
-        await TempUser.deleteOne({ email });
 
+        await TempUser.deleteOne({ email: trimmedEmail });
+        const htmlContent = await renderEmailTemplate("welcomeEmail", {
+            username: user.username
+        });
+
+        console.log("-----", user)
+        const transporter = await createTransporter();
+        const mailOptions = {
+            from: process.env.MAIL_HOST,
+            to: trimmedEmail,
+            subject: "Welcome to Our web-App",
+            html: htmlContent,
+        };
+        await transporter.sendMail(mailOptions);
+        console.log("Welcome Email sent successfully");
         return res.status(200).json({
             success: true,
             message: "Account created successfully",
@@ -121,32 +142,34 @@ const verifyOtp = async (req, res, next) => {
 
 const resendOtp = async (req, res, next) => {
     try {
-        const { email } = req.body;
-        if (!email) {
-            const err = new Error("Email is required");
+        if (!req.body) {
+            const err = new Error("Request body not found");
             err.status = 400;
             throw err;
         }
 
-        const checkUser = await User.findOne({ email });
+        const { email } = req.body;
+        const trimmedEmail = email.trim().toLowerCase();
+
+        const checkUser = await User.findOne({ email: trimmedEmail });
         if (checkUser) {
             const err = new Error("email already registered and verified");
             err.status = 409;
             throw err;
         }
 
-        const checkTempUser = await TempUser.findOne({ email });
+        const checkTempUser = await TempUser.findOne({ email: trimmedEmail });
         if (!checkTempUser) {
             const err = new Error("No pending verification found for this email");
             err.status = 409;
             throw err;
         }
-        const otp = await generateOTP(email);
+        const otp = await generateOTP(trimmedEmail);
 
         const htmlContent = await renderEmailTemplate("otpEmail", {
-            username,
+            username: checkTempUser.username,
             otp,
-            otpExpiry: OTP_EXPIRY_MINUTES,
+            expiryMinutes: process.env.OTP_EXPIRY_MINUTES,
         });
 
         const transporter = await createTransporter();
@@ -154,11 +177,11 @@ const resendOtp = async (req, res, next) => {
         const mailOptions = {
             from: process.env.MAIL_HOST,
             to: email,
-            subject: "Verify your account",
+            subject: "Resend OTP- Verify your account",
             html: htmlContent,
         };
         await transporter.sendMail(mailOptions);
-        console.log("Email sent successfully");
+        console.log("New Email sent successfully");
 
         res.status(201).json({
             success: true,
@@ -172,5 +195,5 @@ const resendOtp = async (req, res, next) => {
 module.exports = {
     registerAccount,
     verifyOtp,
-    resendOtp
+    resendOtp,
 };

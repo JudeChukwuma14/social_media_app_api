@@ -1,0 +1,31 @@
+project/
+├── model/
+│   ├── userModel.js          // Updated: profileImage, followers, following
+│   ├── tempUserModel.js      // Unchanged: Temporary user for OTP
+│   ├── postModel.js          // Updated: image and imagePublicId as arrays
+│   ├── reactionModel.js      // Unchanged: Reaction model
+│   ├── commentModel.js       // Unchanged: Comment/reply model
+├── middleware/
+│   ├── otpGenerator.js       // Unchanged: OTP generation
+│   ├── emailSetup.js         // Unchanged: Email setup
+│   ├── joiValidation.js      // Updated: editPost, updateProfile
+│   ├── errorHandler.js       // Unchanged: Error handling
+│   ├── verifyToken.js        // Unchanged: JWT verification
+│   └── upload.js             // Updated: Multer with Cloudinary for multiple images
+├── config/
+│   └── cloudinary.js         // New: Your Cloudinary config
+├── controllers/
+│   ├── authController.js     // Unchanged: Authentication endpoints
+│   ├── socialController.js   // Updated: createPost, getPosts, editPost
+│   └── userController.js     // New: updateProfile, followUser, unfollowUser
+├── router/
+│   ├── allRouter.js          // Unchanged: Auth routes
+│   ├── socialRouter.js       // Updated: editPost
+│   └── userRouter.js         // New: profile and follow routes
+├── views/
+│   └── emails/
+│       ├── otpEmail.ejs      // Unchanged: OTP email template
+│       ├── resetPasswordEmail.ejs // Unchanged: Reset password email template
+│       ├── welcomeEmail.ejs  // Unchanged: Welcome email template
+├── index.js                  // Updated: Mount userRouter, no uploads/
+└── .env                      // Updated: Add Cloudinary credentials

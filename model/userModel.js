@@ -25,7 +25,7 @@ const userSchema = new mongoose.Schema({
         default: null,
         expires: 900
     },
-    isVerifed: {
+    isVerified: {
         type: Boolean,
         default: true,
     }

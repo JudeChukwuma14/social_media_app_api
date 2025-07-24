@@ -1,7 +1,6 @@
 
 const mongoose = require("mongoose")
 const { OTP_EXPIRY_MINUTES } = require("../config")
-console.log("OTP_EXPIRY_MINUTES:", OTP_EXPIRY_MINUTES);
 const tempUserSchema = new mongoose.Schema({
     username: {
         type: String,

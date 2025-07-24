@@ -212,7 +212,7 @@ const forgotPassword = async (req, res, next) => {
         const trimmedEmail = email.trim().toLowerCase();
 
         const user = await User.findOne({ email: trimmedEmail });
-        if (!user || !user.isVerifed) {
+        if (!user || !user.isVerified) {
             const err = new Error("No verified account found with this email");
             err.status = 404;
             throw err;
@@ -244,6 +244,65 @@ const forgotPassword = async (req, res, next) => {
     }
 };
 
+const resendForgotPasswordOtp = async (req, res, next) => {
+    try {
+        if (!req.body) {
+            const err = new Error("Request body not found");
+            err.status = 400;
+            throw err;
+        }
+
+        const { error } = forgetPass(req.body);
+        if (error) {
+            const err = new Error(error.details[0].message);
+            err.status = 400;
+            throw err;
+        }
+        const { email } = req.body;
+        const trimmedEmail = email.trim().toLowerCase();
+
+        const user = await User.findOne({ email: trimmedEmail });
+        if (!user || !user.isVerified) {
+            const err = new Error("No verified account found with this email");
+            err.status = 404;
+            throw err;
+        }
+        const otp = await generateOTP(trimmedEmail);
+        const otpExpires = new Date(Date.now() + 20 * 60 * 1000);
+        await User.updateOne(
+            { email: trimmedEmail },
+            {
+                $set: {
+                    otp,
+                    otpExpires,
+                },
+            }
+        );
+
+        const htmlContent = await renderEmailTemplate("resetPasswordOtp", {
+            username: user.username,
+            otp,
+            expiryMinutes: process.env.OTP_EXPIRY_MINUTES,
+        });
+
+        const transporter = await createTransporter();
+        const mailOptions = {
+            from: process.env.MAIL_HOST,
+            to: trimmedEmail,
+            subject: "Reset Your Password OTP - New OTP",
+            html: htmlContent,
+        };
+        await transporter.sendMail(mailOptions);
+        console.log("Resend  ForgetPassword OTP Email sent successfully");
+        return res.status(200).json({
+            success: true,
+            message: "New password OTP sent to email",
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
 const resetPassword = async (req, res, next) => {
     try {
         if (!req.body) {
@@ -266,7 +325,7 @@ const resetPassword = async (req, res, next) => {
             email: trimmedEmail,
             otp,
             otpExpires: { $gt: Date.now() },
-            isVerifed: true,
+            isVerified: true,
         });
 
         if (!user) {
@@ -292,12 +351,24 @@ const resetPassword = async (req, res, next) => {
         );
         return res.status(200).json({
             success: true,
-            message: "Password reset successfully"
-        })
+            message: "Password reset successfully",
+        });
     } catch (error) {
         next(error);
     }
 };
+
+const loginUser = async (req, res, next) => {
+    try {
+        if (!req.body) {
+            const err = new Error("Request body not found");
+            err.status = 400;
+            throw err;
+        }
+    } catch (error) {
+        next(error)
+    }
+}
 
 module.exports = {
     registerAccount,
@@ -305,4 +376,5 @@ module.exports = {
     resendOtp,
     forgotPassword,
     resetPassword,
+    resendForgotPasswordOtp,
 };
